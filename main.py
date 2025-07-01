@@ -25,28 +25,38 @@ except Exception as e:
     model = None
 
 # --- Ruta del Webhook ---
-@app.route('/webhook', methods=['POST'])
+# --- Ruta del Webhook (VERSIÓN DE DIAGNÓSTICO) ---
+@app.route('/webhook', methods=['GET', 'POST']) # Aceptamos GET y POST
 def handle_webhook():
-    # (Opcional) Verificación de seguridad
-    if VERIFY_TOKEN:
-        auth_header = request.headers.get('Authorization')
-        if auth_header != VERIFY_TOKEN:
-            print("Acceso denegado: Token de verificación inválido.")
-            return jsonify({'error': 'Unauthorized'}), 403
+    print("--- INICIO DEPURACIÓN AVANZADA ---")
+    print(f"Método HTTP recibido: {request.method}")
+    print("--- Cabeceras (Headers) ---")
+    print(request.headers)
+    
+    user_message = None
+    
+    if request.method == 'POST':
+        # Intentamos obtener datos del cuerpo (body) si es POST
+        data = request.get_json(silent=True) or {}
+        print(f"Cuerpo (Body) JSON recibido: {data}")
+        user_message = data.get('query')
 
-    # Obtener el mensaje enviado por AutoResponder
-    data = request.get_json()
-    user_message = data.get('query') # AutoResponder suele usar el campo 'query'
+    # También revisamos si los datos vienen en la URL (query parameters)
+    # Esto es típico de un GET, pero a veces viene en POST también
+    args = request.args
+    print(f"Argumentos de la URL (Query Params) recibidos: {args}")
+    if not user_message:
+        user_message = args.get('query')
+
+    print(f"Mensaje del usuario extraído: {user_message}")
+    print("--- FIN DEPURACIÓN AVANZADA ---")
 
     if not user_message:
-        return jsonify({'error': 'No se recibió ningún mensaje (query).'}), 400
+        # Si después de todo no encontramos el mensaje, devolvemos un error.
+        return jsonify({'error': 'No se encontró el parámetro "query" en la petición.'}), 400
 
-    print(f"Mensaje recibido de AutoResponder: '{user_message}'")
-    
-    # Obtener la respuesta de la IA
+    # El resto del código sigue igual...
     ai_response = get_ai_response(user_message)
-    
-    # Devolver la respuesta en formato JSON para que AutoResponder la lea
     return jsonify({'reply': ai_response})
 
 def get_ai_response(message):
