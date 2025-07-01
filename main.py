@@ -1,8 +1,5 @@
 import os
-import json
-import requests
 import google.generativeai as genai
-import openai
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 
@@ -11,107 +8,66 @@ load_dotenv()
 
 app = Flask(__name__)
 
-# Cargar credenciales desde variables de entorno
-WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
+# --- Configuración de Claves y Modelos ---
+# Clave para la IA de Google (obligatoria)
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
+# Token para asegurar nuestro webhook (opcional pero recomendado)
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
-PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# Configurar la API de OpenAI
-openai.api_key = OPENAI_API_KEY
+# Configurar el modelo de IA de Google Gemini
+try:
+    genai.configure(api_key=GOOGLE_API_KEY)
+    model = genai.GenerativeModel('gemini-1.5-flash')
+    print("Modelo de Google AI configurado correctamente.")
+except Exception as e:
+    print(f"Error al configurar Google AI: {e}")
+    model = None
 
-@app.route('/webhook', methods=['GET'])
-def verify_webhook():
-    """
-    Esta función se usa para la verificación inicial del Webhook por parte de Meta.
-    """
-    mode = request.args.get('hub.mode')
-    token = request.args.get('hub.verify_token')
-    challenge = request.args.get('hub.challenge')
-
-    if mode and token:
-        if mode == 'subscribe' and token == VERIFY_TOKEN:
-            print('WEBHOOK_VERIFIED')
-            return challenge, 200
-        else:
-            return 'VERIFICATION_FAILED', 403
-    return 'INVALID_REQUEST', 400
-
+# --- Ruta del Webhook ---
 @app.route('/webhook', methods=['POST'])
 def handle_webhook():
-    """
-    Esta función maneja los mensajes entrantes de WhatsApp.
-    """
-    body = request.get_json()
-    print(json.dumps(body, indent=2))  # Para depuración
+    # (Opcional) Verificación de seguridad
+    if VERIFY_TOKEN:
+        auth_header = request.headers.get('Authorization')
+        if auth_header != VERIFY_TOKEN:
+            print("Acceso denegado: Token de verificación inválido.")
+            return jsonify({'error': 'Unauthorized'}), 403
 
-    try:
-        # Extraer el mensaje del usuario
-        if body.get('object'):
-            if (body.get('entry') and
-                    body['entry'][0].get('changes') and
-                    body['entry'][0]['changes'][0].get('value') and
-                    body['entry'][0]['changes'][0]['value'].get('messages') and
-                    body['entry'][0]['changes'][0]['value']['messages'][0]):
+    # Obtener el mensaje enviado por AutoResponder
+    data = request.get_json()
+    user_message = data.get('query') # AutoResponder suele usar el campo 'query'
 
-                message_data = body['entry'][0]['changes'][0]['value']['messages'][0]
-                from_number = message_data['from']
-                user_message = message_data['text']['body']
+    if not user_message:
+        return jsonify({'error': 'No se recibió ningún mensaje (query).'}), 400
 
-                # 1. Obtener la respuesta de la IA
-                ai_response = get_ai_response(user_message)
-
-                                # --- LÍNEA DE DEPURACIÓN CRUCIAL ---
-                print(f"INTENTANDO RESPONDER AL NÚMERO: '{from_number}'")
-                # ------------------------------------
-
-                # 2. Enviar la respuesta de vuelta al usuario
-                send_whatsapp_message(from_number, ai_response)
-
-            return jsonify({'status': 'ok'}), 200
-    except Exception as e:
-        print(f"Error handling webhook: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
-
-    return 'EVENT_RECEIVED', 200
-
-
-# Carga la nueva clave de API al inicio
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-genai.configure(api_key=GOOGLE_API_KEY)
+    print(f"Mensaje recibido de AutoResponder: '{user_message}'")
+    
+    # Obtener la respuesta de la IA
+    ai_response = get_ai_response(user_message)
+    
+    # Devolver la respuesta en formato JSON para que AutoResponder la lea
+    return jsonify({'reply': ai_response})
 
 def get_ai_response(message):
-    """
-    Llama a la API de Google Gemini para obtener una respuesta inteligente.
-    """
+    """Llama a Google Gemini para obtener una respuesta inteligente."""
+    if not model:
+        return "El modelo de IA no está disponible en este momento."
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash') # Usamos el modelo más rápido y eficiente
-        response = model.generate_content(message)
+        # Aquí puedes mejorar el prompt para darle más contexto a la IA
+        prompt = f"Eres un asistente virtual para mi negocio. Sé amable, conciso y profesional. Responde a la siguiente consulta de un cliente: '{message}'"
+        response = model.generate_content(prompt)
+        print(f"Respuesta generada por la IA: '{response.text}'")
         return response.text
     except Exception as e:
-        print(f"Error en Google Gemini: {e}")
-        return "Lo siento, mi inteligencia (Gemini) no está respondiendo. Intenta más tarde."
+        print(f"Error en la llamada a la API de Google Gemini: {e}")
+        return "Lo siento, estoy teniendo un problema técnico para pensar mi respuesta."
 
-
-def send_whatsapp_message(to_number, message):
-    """
-    Envía un mensaje de vuelta al usuario usando la API de WhatsApp.
-    """
-    # LA LÍNEA A CAMBIAR ES LA SIGUIENTE:
-    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
-
-    headers = {
-        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "messaging_product": "whatsapp",
-        "to": to_number,
-        "text": {"body": message}
-    }
-    response = requests.post(url, headers=headers, json=data)
-    print(f"Respuesta de la API de WhatsApp: {response.status_code}, {response.text}")
-
+# --- Ruta de prueba para verificar que el servidor está vivo ---
+@app.route('/')
+def index():
+    return "El cerebro de tu bot está en línea. ¡Listo para recibir conexiones desde AutoResponder!"
 
 if __name__ == '__main__':
-    app.run(port=5000, debug=True)
+    # Gunicorn usará el objeto 'app', no necesitamos app.run() para producción
+    pass
