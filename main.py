@@ -46,7 +46,7 @@ def handle_webhook():
     ai_response = get_ai_response(user_message)
     
     # Devolver la respuesta para que AutoResponder la envíe
-    return jsonify({'reply': ai_response})
+    return jsonify({'replies': [ai_response]})
 
 def get_ai_response(message):
     """Llama a Google Gemini para obtener una respuesta inteligente."""
