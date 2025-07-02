@@ -11,6 +11,10 @@ app = Flask(__name__)
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 
+# Diccionario para guardar las conversaciones en memoria
+# La clave será el número de teléfono del usuario, el valor será la sesión de chat.
+conversations = {}
+
 try:
     genai.configure(api_key=GOOGLE_API_KEY)
     model = genai.GenerativeModel('gemini-2.0-flash')
@@ -19,7 +23,7 @@ except Exception as e:
     print(f"❌ Error al configurar Google AI: {e}")
     model = None
 
-# --- Función de Limpieza (ya la teníamos, es útil) ---
+# --- Función de Limpieza (la mantenemos) ---
 def limpiar_markdown_links(texto):
     patron = r'\[([^\]]+)\]\(([^)]+)\)'
     def reemplazo(match):
@@ -27,42 +31,45 @@ def limpiar_markdown_links(texto):
         return url if texto_visible == url else f"{texto_visible} ({url})"
     return re.sub(patron, reemplazo, texto)
 
-# --- Ruta del Webhook ---
+# --- Ruta del Webhook (Modificada) ---
 @app.route('/webhook', methods=['POST'])
 def handle_webhook():
     if VERIFY_TOKEN and request.headers.get('Authorization') != VERIFY_TOKEN:
         return jsonify({'error': 'Unauthorized'}), 403
 
     data = request.get_json()
-    user_message = data.get('query', {}).get('message')
+    query_data = data.get('query', {})
+    user_message = query_data.get('message')
+    # ¡NUEVO! Obtenemos el ID del remitente para identificar la conversación
+    sender_id = query_data.get('sender')
     
-    if not user_message:
-        return jsonify({'error': 'No se encontró el mensaje.'}), 400
+    if not user_message or not sender_id:
+        return jsonify({'error': 'Faltan los campos "message" o "sender".'}), 400
 
-    print(f"🤖 Mensaje recibido: '{user_message}'")
+    print(f"🤖 Mensaje recibido de '{sender_id}': '{user_message}'")
     
-    ai_response_raw = get_ai_response(user_message)
+    # Pasamos el sender_id a la función de la IA para que use la memoria
+    ai_response_raw = get_ai_response(user_message, sender_id)
     ai_response_cleaned = limpiar_markdown_links(ai_response_raw)
     
-    print(f"🧼 Respuesta limpia enviada: '{ai_response_cleaned}'")
+    print(f"🧼 Respuesta limpia enviada a '{sender_id}': '{ai_response_cleaned}'")
 
-    # --- LÍNEA CRÍTICA MODIFICADA SEGÚN LA DOCUMENTACIÓN ---
-    # Creamos el formato de respuesta exacto que AutoResponder requiere.
-    respuesta_json = {
-        "replies": [
-            {"message": ai_response_cleaned}
-        ]
-    }
-    
+    respuesta_json = {"replies": [{"message": ai_response_cleaned}]}
     return jsonify(respuesta_json)
 
-def get_ai_response(message):
+# --- Función de IA (Reescrita con Memoria) ---
+def get_ai_response(message, sender_id):
+    """Gestiona la conversación con memoria para cada usuario."""
     if not model:
         return "El modelo de IA no está disponible."
-    
-    # --- AQUÍ CONSTRUYES EL PROMPT ---
-    # Usamos comillas triples (""") para escribir un prompt de varias líneas de forma limpia.
-    prompt = f"""
+
+    # Revisa si ya tenemos una conversación con este usuario
+    if sender_id not in conversations:
+        # Si no, crea una nueva sesión de chat con el historial inicial (la personalidad)
+        print(f"💬 Creando nueva sesión de chat para {sender_id}")
+        
+        # El prompt inicial ahora se convierte en el primer mensaje de la historia
+        initial_prompt_context = """
     **1. PERSONA:**
     Eres Atlas, el asistente virtual experto del servidor de juegos MU ARGENTINA , basado en el juego Online MU Online Season 6 Episodio 3. Tu tono es amigable, servicial y un poco entusiasta por el juego.
 
@@ -92,14 +99,20 @@ def get_ai_response(message):
     Se estan planeando abrir 2 servidores nuevos, uno en poco tiempo y otro cerca de fin de año.
     Si el juego carga pero no inicia, probablemente deban añadir el main.exe al DEP de Windows. Guia para añadir el main.exe al DEP de Windows, Presiona la tecla Windows, escribe "Mi equipo" , dale click derecho y presiona en Propiedades, luego busca a la derecha o izquierda de la pantalla donde diga Configuración avanzada del sistema y haz clic allí, luego ve a la pestaña opciones avanzadas, en la sección Rendimiento haz clic en configuración, Ve a la pestaña "Prevención de ejecución de datos" y activa la opción "Activar DEP para todos los programas y servicios excepto los que yo seleccione" , Haz clic en "Agregar" y busca la ubicación donde instalaste el juego, allí selecciona main.exe , luego presiona en Aplicar y Aceptar, Se recomienda reiniciar la computadora para que los cambios se apliquen correctamente.
     El reseteo o reinicio del árbol de habilidades skilltree no se encuentra habilitado momentáneamente pero se esta trabajando en buscar una solución para que los jugadores puedan usar esta función.
-
-    **3. PREGUNTA DEL CLIENTE:**
-    {message}
-    """
+        """
+        
+        # Creamos el historial de chat con el contexto
+        conversations[sender_id] = model.start_chat(history=[
+            {'role': 'user', 'parts': ["Hola, por favor asume la siguiente personalidad y contexto para nuestra conversación."]},
+            {'role': 'model', 'parts': [initial_prompt_context]},
+        ])
+    
+    chat = conversations[sender_id]
     
     try:
-        response = model.generate_content(prompt)
-        print(f"🧠 Respuesta generada: '{response.text}'")
+        # Enviamos el nuevo mensaje dentro de la sesión de chat existente
+        response = chat.send_message(message)
+        print(f"🧠 Respuesta generada para '{sender_id}': '{response.text}'")
         return response.text
     except Exception as e:
         print(f"❌ Error en la llamada a Google Gemini: {e}")
@@ -107,4 +120,4 @@ def get_ai_response(message):
 
 @app.route('/')
 def index():
-    return "El cerebro del bot está en línea y configurado según la documentación oficial."
+    return "El cerebro del bot (con memoria) está en línea."
