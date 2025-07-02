@@ -21,32 +21,26 @@ except Exception as e:
     print(f"❌ Error al configurar Google AI: {e}")
     model = None
 
-# --- Ruta del Webhook ---
+# --- Ruta del Webhook (VERSIÓN DE PRUEBA CON RESPUESTA FIJA) ---
 @app.route('/webhook', methods=['POST'])
 def handle_webhook():
-    # (Opcional) Verificación de seguridad
-    if VERIFY_TOKEN:
-        if request.headers.get('Authorization') != VERIFY_TOKEN:
-            return jsonify({'error': 'Unauthorized'}), 403
+    # La verificación de seguridad sigue igual
+    if VERIFY_TOKEN and request.headers.get('Authorization') != VERIFY_TOKEN:
+        return jsonify({'error': 'Unauthorized'}), 403
 
-    # Obtener el paquete de datos de AutoResponder
+    # Recibimos el mensaje pero lo ignoramos por ahora
     data = request.get_json()
-    
-    # --- AJUSTE CLAVE ---
-    # Extraemos el objeto 'query' y luego, de adentro, el 'message'
     query_data = data.get('query', {})
     user_message = query_data.get('message')
-    
-    if not user_message:
-        return jsonify({'error': 'No se encontró el campo "message" en el objeto "query".'}), 400
+    print(f"🤖 Mensaje recibido: '{user_message}' (será ignorado por la prueba)")
 
-    print(f"🤖 Mensaje recibido: '{user_message}'")
+    # ¡PASO CLAVE! En lugar de llamar a la IA, definimos una respuesta simple y fija.
+    respuesta_fija = "Esta es una respuesta de prueba."
     
-    # Obtener la respuesta de la IA
-    ai_response = get_ai_response(user_message)
-    
-    # Devolver la respuesta para que AutoResponder la envíe
-    return jsonify({'replies': [ai_response]})
+    print(f"🧼 Enviando respuesta fija: '{respuesta_fija}'")
+
+    # Enviamos la respuesta fija en el formato que AutoResponder espera
+    return jsonify({'replies': [respuesta_fija]})
 
 def get_ai_response(message):
     """Llama a Google Gemini para obtener una respuesta inteligente."""
