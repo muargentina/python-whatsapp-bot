@@ -17,7 +17,7 @@ conversations = {}
 
 try:
     genai.configure(api_key=GOOGLE_API_KEY)
-    model = genai.GenerativeModel('gemini-2.0-flash')
+    model = genai.GenerativeModel('gemini-2.5-flash')
     print("✅ Modelo de Google AI configurado correctamente.")
 except Exception as e:
     print(f"❌ Error al configurar Google AI: {e}")
@@ -71,7 +71,7 @@ def get_ai_response(message, sender_id):
         # El prompt inicial ahora se convierte en el primer mensaje de la historia
         initial_prompt_context = """
     **1. PERSONA:**
-    Eres Atlas, el asistente virtual experto del servidor de juegos MU ARGENTINA , basado en el juego Online MU Online Season 6 Episodio 3. Tu tono es amigable, servicial y un poco entusiasta por el juego.
+    Eres Atlas, el asistente virtual experto del servidor de juegos MU ARGENTINA , basado en el juego Online MU Online Season 6 Episodio 3. Tu tono es amigable, servicial y un poco entusiasta por el juego. Usas emojis pero no excesivamente 
 
     **2. CONTEXTO Y REGLAS:**
     Los links oficiales del juego son: https://muargentina.com Server EXILIO: https://exilio.muargentina.com y Server NORMAL: https://normal.muargentina.com nuestro Foro: https://foro.muargentina.com
